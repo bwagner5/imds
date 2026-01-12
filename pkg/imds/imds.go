@@ -192,43 +192,84 @@ func (c *Client) setValueAt(root map[string]any, path string, resp []byte) {
 	}
 }
 
-// FindKey searches for a key name and returns its full path.
-func (c *Client) FindKey(ctx context.Context, key string) string {
+// FindKey searches for a key name and returns all matching full paths.
+// Supports case-insensitive matching and camelCase/kebab-case conversion.
+func (c *Client) FindKey(ctx context.Context, key string) []string {
+	keysToTry := keyVariants(key)
+	var results []string
+	seen := make(map[string]bool)
 	for _, base := range []string{"meta-data", "dynamic"} {
 		data := c.GetAll(ctx, base)
 		if baseData, ok := data[base].(map[string]any); ok {
-			if path := findKeyIn(baseData, "", key); path != "" {
-				return base + "/" + path
+			for _, k := range keysToTry {
+				for _, path := range findKeyIn(baseData, "", k) {
+					full := base + "/" + path
+					if !seen[full] {
+						seen[full] = true
+						results = append(results, full)
+					}
+				}
 			}
 		}
 	}
-	return ""
+	return results
 }
 
-func findKeyIn(data any, prefix, key string) string {
+// keyVariants returns all case variants of a key (original, kebab-case, camelCase).
+func keyVariants(key string) []string {
+	seen := make(map[string]bool)
+	var variants []string
+	add := func(s string) {
+		if !seen[s] {
+			seen[s] = true
+			variants = append(variants, s)
+		}
+	}
+	add(key)
+	add(toKebab(key))
+	add(toCamel(key))
+	return variants
+}
+
+func toKebab(s string) string {
+	var result []rune
+	for i, r := range s {
+		if i > 0 && r >= 'A' && r <= 'Z' {
+			result = append(result, '-')
+		}
+		result = append(result, r)
+	}
+	return strings.ToLower(string(result))
+}
+
+func toCamel(s string) string {
+	parts := strings.Split(s, "-")
+	for i := 1; i < len(parts); i++ {
+		if len(parts[i]) > 0 {
+			parts[i] = strings.ToUpper(parts[i][:1]) + parts[i][1:]
+		}
+	}
+	return strings.Join(parts, "")
+}
+
+func findKeyIn(data any, prefix, key string) []string {
 	m, ok := data.(map[string]any)
 	if !ok {
-		return ""
+		return nil
 	}
 
-	var best string
-	maxDepth := -1
-
+	var results []string
 	for k, v := range m {
 		path := k
 		if prefix != "" {
 			path = prefix + "/" + k
 		}
-		if k == key && strings.Count(path, "/") > maxDepth {
-			best = path
-			maxDepth = strings.Count(path, "/")
+		if strings.EqualFold(k, key) {
+			results = append(results, path)
 		}
-		if found := findKeyIn(v, path, key); found != "" && strings.Count(found, "/") > maxDepth {
-			best = found
-			maxDepth = strings.Count(found, "/")
-		}
+		results = append(results, findKeyIn(v, path, key)...)
 	}
-	return best
+	return results
 }
 
 // Watch monitors the specified path for changes and sends updates to the returned channel.
@@ -272,9 +313,19 @@ func NormalizePath(path string) string {
 	if path == "" {
 		return ""
 	}
-	if strings.HasPrefix(path, "meta-data/") ||
-		strings.HasPrefix(path, "dynamic/") ||
-		strings.HasPrefix(path, "user-data") {
+	// Handle common aliases
+	if path == "metadata" {
+		return "meta-data"
+	}
+	if strings.HasPrefix(path, "metadata/") {
+		return "meta-data/" + strings.TrimPrefix(path, "metadata/")
+	}
+	if path == "userdata" {
+		return "user-data"
+	}
+	if path == "meta-data" || strings.HasPrefix(path, "meta-data/") ||
+		path == "dynamic" || strings.HasPrefix(path, "dynamic/") ||
+		path == "user-data" || strings.HasPrefix(path, "user-data/") {
 		return path
 	}
 	return "meta-data/" + path

@@ -185,11 +185,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		// Reserve space for: path(1) + value box(7) + help(2) + margins(2)
 		listHeight := msg.Height - 12
 		if listHeight < 5 {
 			listHeight = 5
 		}
 		m.list.SetSize(msg.Width, listHeight)
+		m.list.SetHeight(listHeight)
 
 	case dataLoaded:
 		m.data = msg.data
@@ -330,13 +332,23 @@ func (m *Model) renderValuePreview() string {
 	}
 
 	val := sel.value
-	maxLen := (m.width - 8) * 3
+	maxLines := 3
+	// Truncate by lines first
+	lines := strings.Split(val, "\n")
+	if len(lines) > maxLines {
+		lines = lines[:maxLines]
+		val = strings.Join(lines, "\n") + "..."
+	} else {
+		val = strings.Join(lines, "\n")
+	}
+	// Then truncate by width
+	maxLen := (m.width - 8) * maxLines
 	if len(val) > maxLen {
 		val = val[:maxLen-3] + "..."
 	}
 
 	content := valueTitleStyle.Render(sel.name) + "\n" + valueContentStyle.Render(val)
-	return valueBoxStyle.Width(m.width-4).Render(content) + "\n"
+	return valueBoxStyle.Width(m.width-4).Height(maxLines+2).Render(content) + "\n"
 }
 
 func (m *Model) renderValueFullscreen() string {

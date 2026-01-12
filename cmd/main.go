@@ -41,6 +41,7 @@ type Options struct {
 	JSON      bool
 	Watch     bool
 	Version   bool
+	ShowKeys  bool
 }
 
 var opts = &Options{}
@@ -75,6 +76,7 @@ func main() {
 	rootCmd.Flags().BoolVarP(&opts.JSON, "json", "j", false, "Output as JSON")
 	rootCmd.Flags().BoolVarP(&opts.Watch, "watch", "w", false, "Watch for changes")
 	rootCmd.Flags().BoolVar(&opts.Version, "version", false, "Show version")
+	rootCmd.Flags().BoolVarP(&opts.ShowKeys, "show-keys", "k", false, "Show keys with values")
 
 	if err := rootCmd.ExecuteContext(ctx); err != nil {
 		os.Exit(1)
@@ -116,11 +118,26 @@ func run(ctx context.Context, args []string) error {
 func query(ctx context.Context, client *imds.Client, path string) error {
 	// Smart lookup for simple keys (no slashes)
 	if !strings.Contains(path, "/") {
-		if found := client.FindKey(ctx, path); found != "" {
-			resp, err := client.Get(ctx, found)
-			if err == nil && !imds.IsDirectory(resp) {
-				return output(resp)
+		if found := client.FindKey(ctx, path); len(found) > 0 {
+			seen := make(map[string]bool)
+			for _, f := range found {
+				val, err := getValueAtPath(ctx, client, f)
+				if err != nil || val == "" {
+					continue
+				}
+				if opts.ShowKeys {
+					if !seen[f] {
+						seen[f] = true
+						fmt.Printf("%s: %s\n", f, val)
+					}
+				} else {
+					if !seen[val] {
+						seen[val] = true
+						fmt.Println(val)
+					}
+				}
 			}
+			return nil
 		}
 	}
 
@@ -138,6 +155,53 @@ func query(ctx context.Context, client *imds.Client, path string) error {
 		return fmt.Errorf("key %q not found", path)
 	}
 	return output(resp)
+}
+
+// getValueAtPath retrieves a value, handling nested JSON document paths.
+func getValueAtPath(ctx context.Context, client *imds.Client, path string) (string, error) {
+	resp, err := client.Get(ctx, path)
+	if err == nil && !imds.IsDirectory(resp) {
+		return strings.TrimSpace(string(resp)), nil
+	}
+	// Try to extract from parent JSON document
+	parts := strings.Split(path, "/")
+	for i := len(parts) - 1; i > 0; i-- {
+		parentPath := strings.Join(parts[:i], "/")
+		resp, err := client.Get(ctx, parentPath)
+		if err != nil {
+			continue
+		}
+		var doc map[string]any
+		if json.Unmarshal(resp, &doc) != nil {
+			continue
+		}
+		// Navigate to nested key
+		val := navigateJSON(doc, parts[i:])
+		if val != "" {
+			return val, nil
+		}
+	}
+	return "", fmt.Errorf("not found")
+}
+
+func navigateJSON(data map[string]any, keys []string) string {
+	var current any = data
+	for _, k := range keys {
+		m, ok := current.(map[string]any)
+		if !ok {
+			return ""
+		}
+		current = m[k]
+	}
+	switch v := current.(type) {
+	case string:
+		return v
+	case nil:
+		return ""
+	default:
+		b, _ := json.Marshal(v)
+		return string(b)
+	}
 }
 
 func output(resp []byte) error {
