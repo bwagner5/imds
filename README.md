@@ -4,14 +4,43 @@ A command-line interface and interactive TUI for accessing EC2 Instance Metadata
 
 ## Installation
 
+### Debian/Ubuntu (apt)
+
+```bash
+IMDS_VERSION=$(curl -fsSL "https://api.github.com/repos/bwagner5/imds/releases/latest" | grep '"tag_name":' | cut -d'"' -f4 | tr -d 'v')
+ARCH=$(dpkg --print-architecture)
+curl -fsSL "https://github.com/bwagner5/imds/releases/download/v${IMDS_VERSION}/imds_${IMDS_VERSION}_linux_${ARCH}.deb" -o imds.deb
+sudo apt install ./imds.deb
+rm imds.deb
+```
+
+### RHEL/Fedora/Amazon Linux (yum/dnf)
+
+```bash
+IMDS_VERSION=$(curl -fsSL "https://api.github.com/repos/bwagner5/imds/releases/latest" | grep '"tag_name":' | cut -d'"' -f4 | tr -d 'v')
+ARCH=$(uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/')
+sudo yum install -y "https://github.com/bwagner5/imds/releases/download/v${IMDS_VERSION}/imds_${IMDS_VERSION}_linux_${ARCH}.rpm"
+```
+
+### Go Install
+
 ```bash
 go install github.com/bwagner5/imds/cmd@latest
 ```
 
-Or build from source:
+### Build from Source
+
 ```bash
 go build -o imds ./cmd/main.go
 ```
+
+### Homebrew Install
+
+```bash
+brew install bwagner5/wagner/amictl
+```
+
+You can play around with it locally on your mac using the [EC2 Metadata Mock](https://github.com/aws/amazon-ec2-metadata-mock).
 
 ## Usage
 
