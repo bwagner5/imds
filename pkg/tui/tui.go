@@ -191,124 +191,152 @@ func (m *Model) Init() tea.Cmd {
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.width = msg.Width
-		m.height = msg.Height
-		// Reserve space for: path(1) + value box(7) + help(2) + margins(2)
-		listHeight := msg.Height - 12
-		if listHeight < 5 {
-			listHeight = 5
-		}
-		m.list.SetSize(msg.Width, listHeight)
-		m.list.SetHeight(listHeight)
+		m.handleResize(msg)
 
 	case dataLoaded:
-		m.data = msg.data
-		m.buildAllItems()
-		m.updateList()
-		// Update selected item if viewing fullscreen
-		if m.showingValue && m.selectedItem.path != "" {
-			for _, it := range m.allItems {
-				if it.path == m.selectedItem.path {
-					m.selectedItem = it
-					break
-				}
-			}
-		}
+		m.handleDataLoaded(msg)
 
 	case tickMsg:
-		return m, tea.Batch(
-			func() tea.Msg {
-				data := m.client.GetAll(m.ctx, "")
-				return dataLoaded{data: data}
-			},
-			tea.Tick(5*time.Second, func(t time.Time) tea.Msg {
-				return tickMsg(t)
-			}),
-		)
+		return m, m.scheduleRefresh()
 
 	case tea.KeyMsg:
-		// Handle fullscreen value view
-		if m.showingValue {
-			switch msg.String() {
-			case "q", "ctrl+c":
-				return m, tea.Quit
-			default:
-				m.showingValue = false
-				return m, nil
-			}
-		}
-
-		// Handle search mode
-		if m.searchMode {
-			switch msg.String() {
-			case "esc":
-				m.searchMode = false
-				m.searchInput.SetValue("")
-				m.updateList()
-				return m, nil
-			case "enter":
-				if sel, ok := m.list.SelectedItem().(item); ok {
-					if sel.isDir {
-						m.path = strings.Split(sel.fullPath, "/")
-						m.searchMode = false
-						m.searchInput.SetValue("")
-						m.updateList()
-						m.list.ResetSelected()
-					} else {
-						m.selectedItem = sel
-						m.showingValue = true
-					}
-				}
-				return m, nil
-			case "up", "down":
-				var cmd tea.Cmd
-				m.list, cmd = m.list.Update(msg)
-				return m, cmd
-			default:
-				var cmd tea.Cmd
-				m.searchInput, cmd = m.searchInput.Update(msg)
-				m.filterSearch()
-				return m, cmd
-			}
-		}
-
-		switch msg.String() {
-		case "q", "ctrl+c":
-			return m, tea.Quit
-		case "/":
-			m.searchMode = true
-			m.searchInput.Focus()
-			m.filterSearch()
-			return m, textinput.Blink
-		case "enter", " ", "right", "l":
-			if sel, ok := m.list.SelectedItem().(item); ok {
-				if sel.isDir {
-					m.path = append(m.path, sel.name)
-					m.updateList()
-					m.list.ResetSelected()
-				} else {
-					m.selectedItem = sel
-					m.showingValue = true
-				}
-			}
-		case "backspace", "left", "h":
-			if len(m.path) > 0 {
-				m.path = m.path[:len(m.path)-1]
-				m.updateList()
-				m.list.ResetSelected()
-			}
-		case "esc":
-			if len(m.path) > 0 {
-				m.path = nil
-				m.updateList()
-				m.list.ResetSelected()
-			}
+		if cmd, handled := m.handleKeyMsg(msg); handled {
+			return m, cmd
 		}
 	}
 
 	var cmd tea.Cmd
 	m.list, cmd = m.list.Update(msg)
 	return m, cmd
+}
+
+func (m *Model) handleResize(msg tea.WindowSizeMsg) {
+	m.width = msg.Width
+	m.height = msg.Height
+	listHeight := msg.Height - 12
+	if listHeight < 5 {
+		listHeight = 5
+	}
+	m.list.SetSize(msg.Width, listHeight)
+	m.list.SetHeight(listHeight)
+}
+
+func (m *Model) handleDataLoaded(msg dataLoaded) {
+	m.data = msg.data
+	m.buildAllItems()
+	m.updateList()
+	if m.showingValue && m.selectedItem.path != "" {
+		for _, it := range m.allItems {
+			if it.path == m.selectedItem.path {
+				m.selectedItem = it
+				break
+			}
+		}
+	}
+}
+
+func (m *Model) scheduleRefresh() tea.Cmd {
+	return tea.Batch(
+		func() tea.Msg {
+			data := m.client.GetAll(m.ctx, "")
+			return dataLoaded{data: data}
+		},
+		tea.Tick(5*time.Second, func(t time.Time) tea.Msg {
+			return tickMsg(t)
+		}),
+	)
+}
+
+func (m *Model) handleKeyMsg(msg tea.KeyMsg) (tea.Cmd, bool) {
+	if m.showingValue {
+		return m.handleFullscreenKey(msg)
+	}
+	if m.searchMode {
+		return m.handleSearchKey(msg)
+	}
+	return m.handleNormalKey(msg)
+}
+
+func (m *Model) handleFullscreenKey(msg tea.KeyMsg) (tea.Cmd, bool) {
+	switch msg.String() {
+	case "q", "ctrl+c":
+		return tea.Quit, true
+	default:
+		m.showingValue = false
+		return nil, true
+	}
+}
+
+func (m *Model) handleSearchKey(msg tea.KeyMsg) (tea.Cmd, bool) {
+	switch msg.String() {
+	case "esc":
+		m.searchMode = false
+		m.searchInput.SetValue("")
+		m.updateList()
+		return nil, true
+	case "enter":
+		if sel, ok := m.list.SelectedItem().(item); ok {
+			if sel.isDir {
+				m.path = strings.Split(sel.fullPath, "/")
+				m.searchMode = false
+				m.searchInput.SetValue("")
+				m.updateList()
+				m.list.ResetSelected()
+			} else {
+				m.selectedItem = sel
+				m.showingValue = true
+			}
+		}
+		return nil, true
+	case "up", "down":
+		var cmd tea.Cmd
+		m.list, cmd = m.list.Update(msg)
+		return cmd, true
+	default:
+		var cmd tea.Cmd
+		m.searchInput, cmd = m.searchInput.Update(msg)
+		m.filterSearch()
+		return cmd, true
+	}
+}
+
+func (m *Model) handleNormalKey(msg tea.KeyMsg) (tea.Cmd, bool) {
+	switch msg.String() {
+	case "q", "ctrl+c":
+		return tea.Quit, true
+	case "/":
+		m.searchMode = true
+		m.searchInput.Focus()
+		m.filterSearch()
+		return textinput.Blink, true
+	case "enter", " ", "right", "l":
+		if sel, ok := m.list.SelectedItem().(item); ok {
+			if sel.isDir {
+				m.path = append(m.path, sel.name)
+				m.updateList()
+				m.list.ResetSelected()
+			} else {
+				m.selectedItem = sel
+				m.showingValue = true
+			}
+		}
+		return nil, true
+	case "backspace", "left", "h":
+		if len(m.path) > 0 {
+			m.path = m.path[:len(m.path)-1]
+			m.updateList()
+			m.list.ResetSelected()
+		}
+		return nil, true
+	case "esc":
+		if len(m.path) > 0 {
+			m.path = nil
+			m.updateList()
+			m.list.ResetSelected()
+		}
+		return nil, true
+	}
+	return nil, false
 }
 
 func (m *Model) View() string {
