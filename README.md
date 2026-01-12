@@ -37,7 +37,7 @@ go build -o imds ./cmd/main.go
 ### Homebrew Install
 
 ```bash
-brew install bwagner5/wagner/amictl
+brew install bwagner5/wagner/imds
 ```
 
 You can play around with it locally on your mac using the [EC2 Metadata Mock](https://github.com/aws/amazon-ec2-metadata-mock).
