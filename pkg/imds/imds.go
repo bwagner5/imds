@@ -39,6 +39,8 @@ type Client struct {
 func NewClient(ctx context.Context, endpoint string) (*Client, error) {
 	if endpoint == "" {
 		endpoint = DefaultEndpoint
+	} else if !strings.HasPrefix(endpoint, "http://") && !strings.HasPrefix(endpoint, "https://") {
+		endpoint = "http://" + endpoint
 	}
 	cfg, err := config.LoadDefaultConfig(ctx, withIMDSEndpoint(endpoint))
 	if err != nil {
