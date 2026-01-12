@@ -1,3 +1,5 @@
+version: 2
+
 before:
   hooks:
     - go mod tidy
@@ -21,18 +23,20 @@ builds:
       - arm64
 
 archives:
-  - format: tar.gz
+  - formats:
+      - tar.gz
     name_template: >-
       {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
     format_overrides:
       - goos: windows
-        format: zip
+        formats:
+          - zip
 
 checksum:
   name_template: 'checksums.txt'
 
 snapshot:
-  name_template: "{{ incpatch .Version }}-snapshot"
+  version_template: "{{ incpatch .Version }}-snapshot"
 
 changelog:
   sort: asc
@@ -42,23 +46,19 @@ changelog:
       - '^test:'
       - '^chore:'
 
-brews:
+homebrew_casks:
   - name: imds
     repository:
       owner: bwagner5
       name: homebrew-wagner
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
-    directory: Formula
     homepage: "https://github.com/bwagner5/imds"
     description: "CLI and TUI for EC2 Instance Metadata Service (IMDS)"
-    license: "Apache-2.0"
-    install: |
-      bin.install "imds"
-    test: |
-      system "#{bin}/imds", "--version"
+    binaries:
+      - imds
 
 nfpms:
-  - maintainer: Brandon Wagner
+  - maintainer: Brandon Wagner <bwagner5@users.noreply.github.com>
     description: CLI and TUI for EC2 Instance Metadata Service (IMDS)
     license: Apache-2.0
     formats:
