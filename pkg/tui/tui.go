@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -173,11 +174,18 @@ type dataLoaded struct {
 	data map[string]any
 }
 
+type tickMsg time.Time
+
 func (m *Model) Init() tea.Cmd {
-	return func() tea.Msg {
-		data := m.client.GetAll(m.ctx, "")
-		return dataLoaded{data: data}
-	}
+	return tea.Batch(
+		func() tea.Msg {
+			data := m.client.GetAll(m.ctx, "")
+			return dataLoaded{data: data}
+		},
+		tea.Tick(5*time.Second, func(t time.Time) tea.Msg {
+			return tickMsg(t)
+		}),
+	)
 }
 
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -197,6 +205,26 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.data = msg.data
 		m.buildAllItems()
 		m.updateList()
+		// Update selected item if viewing fullscreen
+		if m.showingValue && m.selectedItem.path != "" {
+			for _, it := range m.allItems {
+				if it.path == m.selectedItem.path {
+					m.selectedItem = it
+					break
+				}
+			}
+		}
+
+	case tickMsg:
+		return m, tea.Batch(
+			func() tea.Msg {
+				data := m.client.GetAll(m.ctx, "")
+				return dataLoaded{data: data}
+			},
+			tea.Tick(5*time.Second, func(t time.Time) tea.Msg {
+				return tickMsg(t)
+			}),
+		)
 
 	case tea.KeyMsg:
 		// Handle fullscreen value view
@@ -358,13 +386,19 @@ func (m *Model) renderValueFullscreen() string {
 	b.WriteString(fullscreenTitleStyle.Width(m.width).Render(title))
 	b.WriteString("\n")
 
+	maxWidth := m.width - 4
+	if maxWidth > 80 {
+		maxWidth = 80
+	}
+
 	if m.selectedItem.desc != "" {
-		b.WriteString(pathStyle.Render(m.selectedItem.desc))
+		wrapped := wrapText(m.selectedItem.desc, maxWidth)
+		b.WriteString(pathStyle.Render(wrapped))
 		b.WriteString("\n\n")
 	}
 
 	val := m.selectedItem.value
-	wrapped := wrapText(val, m.width-6)
+	wrapped := wrapText(val, maxWidth)
 	b.WriteString(fullscreenValueStyle.Render(wrapped))
 
 	lines := strings.Count(b.String(), "\n")
